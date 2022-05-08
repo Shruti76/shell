@@ -1,6 +1,6 @@
 #!/bin/false
 
-export PYPI_SERVER="${PYPI_SERVER:-https://artifactory-espoo1.int.net.nokia.com/artifactory/api/pypi/cb-pypi-virtual/simple}"
+export PYPI_SERVER="${PYPI_SERVER:-}"
 
 mkdir -p "$HOME/.pip/"
 
@@ -52,7 +52,7 @@ update_pip() {
 download_pip() {
   edebug "Downloading pip"
   TMPDIR=$(mktemp -d)
-  wget -q "${ARTIFACTORY_URL:-http://artifactory-espoo1.int.net.nokia.com}/artifactory/scm-binaries-local/bins/get-pip/get-pip.py" -O "${TMPDIR}/get-pip.py"
+  wget -q "${ARTIFACTORY_URL:-url}/artifactory/scm-binaries-local/bins/get-pip/get-pip.py" -O "${TMPDIR}/get-pip.py"
   python "${TMPDIR}/get-pip.py" --upgrade --no-cache-dir #FIXME turn off cache - ticket CAL2190085
   rm "${TMPDIR}/get-pip.py"
 }
