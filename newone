@@ -1,0 +1,1312 @@
+# CIMP Portal: Integrated Development Environment (IDE) Architecture
+
+## 🎯 Overview: Browser-Based IDE Without Codespaces
+
+Instead of using GitHub Codespaces, build a complete development environment **directly into your CIMP Portal UI** where developers can:
+- Clone repositories
+- Edit code with syntax highlighting
+- Execute Python, Node.js, Maven code directly
+- Run tests in isolated Docker containers
+- Push changes to GitHub
+- Request validation & PR creation
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    INTEGRATED IDE WITHIN CIMP PORTAL                        │
+│                                                                              │
+│  Browser (Single Page Application)                                          │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                                                                      │   │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │   │
+│  │  │  File        │  │  Code        │  │  Integrated  │              │   │
+│  │  │  Explorer    │  │  Editor      │  │  Terminal    │              │   │
+│  │  │              │  │  (Monaco)    │  │              │              │   │
+│  │  │  ├─ src/     │  │              │  │  $ python    │              │   │
+│  │  │  ├─ test/    │  │  func test() │  │  $ mvn build │              │   │
+│  │  │  ├─ build/   │  │  {           │  │  $ npm test  │              │   │
+│  │  │  └─ README   │  │    ...       │  │              │              │   │
+│  │  │              │  │  }           │  │              │              │   │
+│  │  └──────────────┘  └──────────────┘  └──────────────┘              │   │
+│  │                                                                      │   │
+│  │  ┌────────────────────────────────────────────────────────────┐    │   │
+│  │  │  Git Controls                                              │    │   │
+│  │  │  ├─ Branch: main          [↓ Switch Branch]              │    │   │
+│  │  │  ├─ Status: Modified (3 files)                           │    │   │
+│  │  │  ├─ Commit Message: [Fixed API endpoint...]            │    │   │
+│  │  │  ├─ [Commit] [Push] [Pull] [View Changes]              │    │   │
+│  │  │  └─ Last Push: 2 minutes ago                            │    │   │
+│  │  └────────────────────────────────────────────────────────────┘    │   │
+│  │                                                                      │   │
+│  │  ┌────────────────────────────────────────────────────────────┐    │   │
+│  │  │  Build & Test Controls                                     │    │   │
+│  │  │  ├─ Select Runtime: [Python 3.11  ↓]                      │    │   │
+│  │  │  ├─ [Run Tests] [Build] [Execute Script]                 │    │   │
+│  │  │  │                                                        │    │   │
+│  │  │  │  Test Results (Integrated):                           │    │   │
+│  │  │  │  ✓ test_api.py passed (2.34s)                         │    │   │
+│  │  │  │  ✓ test_utils.py passed (1.23s)                       │    │   │
+│  │  │  │  ✗ test_database.py failed (Connection timeout)       │    │   │
+│  │  │  │                                                        │    │   │
+│  │  │  │  Coverage: 87.5% (threshold: 80%)  ✅                │    │   │
+│  │  │  └────────────────────────────────────────────────────────┘    │   │
+│  │                                                                      │   │
+│  │  ┌────────────────────────────────────────────────────────────┐    │   │
+│  │  │  Validation & PR Creation                                  │    │   │
+│  │  │  ├─ Run Security Scan        [Start Scan]                 │    │   │
+│  │  │  ├─ Check Dependencies       [Check]                      │    │   │
+│  │  │  ├─ Validate Code Quality    [Validate]                  │    │   │
+│  │  │  │                                                        │    │   │
+│  │  │  │  Validation Results:                                  │    │   │
+│  │  │  │  ✓ No secrets found                                   │    │   │
+│  │  │  │  ✓ All dependencies up-to-date                        │    │   │
+│  │  │  │  ✓ Code quality: A                                    │    │   │
+│  │  │  │  ✓ Test coverage: 87.5%                               │    │   │
+│  │  │  │                                                        │    │   │
+│  │  │  │  [🎉 Create PR] [📋 View Report]                      │    │   │
+│  │  │  └────────────────────────────────────────────────────────┘    │   │
+│  │                                                                      │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  Backend (Node.js/Express)                                                 │
+│  ├─ Git Management Service (clone, checkout, commit, push)               │
+│  ├─ Docker Orchestration Service (run containers, manage processes)      │
+│  ├─ Code Execution Engine (Python, Node.js, Maven execution)             │
+│  ├─ File Management Service (CRUD on repository files)                   │
+│  ├─ Validation Service (scan code, check dependencies)                   │
+│  └─ Database (PostgreSQL - store sessions, validations)                  │
+│                                                                              │
+│  Docker Containers (Dynamic)                                               │
+│  ├─ Python 3.11 (execute code, run pytest, check coverage)               │
+│  ├─ Node.js 18 (npm install, npm test, webpack build)                    │
+│  ├─ Maven 3.9 (mvn test, mvn build, mvn clean)                           │
+│  ├─ Go 1.20 (go test, go build)                                          │
+│  ├─ Ruby 3.2 (bundle install, rspec, rake test)                          │
+│  └─ PostgreSQL 15 (database testing)                                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🏗️ Complete Architecture
+
+### Frontend Components
+
+```
+IDE_WORKSPACE_PAGE.jsx (Main Container)
+├─ FileExplorer (Left Sidebar)
+├─ CodeEditor (Center)
+├─ IntegratedTerminal (Bottom)
+├─ GitPanel (Bottom-Left)
+├─ BuildTestPanel (Right Sidebar)
+└─ ValidationPanel (Modal)
+
+FILE EXPLORER (Left Panel)
+─────────────────────────────
+FileExplorer.jsx
+├─ TreeView of repository structure
+│  ├─ src/
+│  │  ├─ api/
+│  │  │  ├─ handlers.py
+│  │  │  └─ utils.py
+│  │  ├─ tests/
+│  │  │  ├─ test_api.py
+│  │  │  └─ test_utils.py
+│  │  └─ __init__.py
+│  ├─ requirements.txt
+│  ├─ pytest.ini
+│  ├─ README.md
+│  └─ .gitignore
+│
+├─ File operations (click to edit)
+│  └─ Right-click context menu:
+│     ├─ New File
+│     ├─ New Folder
+│     ├─ Delete
+│     ├─ Rename
+│     └─ Download
+│
+└─ API: GET /api/ide/repository/:id/files
+   Response: { files: [...], directories: [...] }
+
+
+CODE EDITOR (Center Panel)
+──────────────────────────
+CodeEditor.jsx (Monaco Editor)
+├─ Syntax highlighting for:
+│  ├─ Python (.py)
+│  ├─ JavaScript (.js)
+│  ├─ Java (.java)
+│  ├─ XML (.pom)
+│  └─ Any text file
+├─ Line numbers & code folding
+├─ Git diff highlighting (modified lines)
+├─ Error squiggles (from linters)
+├─ Go-to-definition (if available)
+└─ IntelliSense (basic autocomplete)
+
+API: 
+├─ GET /api/ide/repository/:id/file/:path
+   Response: { content: "file contents", language: "python" }
+│
+├─ POST /api/ide/repository/:id/file/:path
+   Body: { content: "updated content" }
+   Response: { success: true, lastModified: "2024-04-20T10:30:00Z" }
+│
+└─ DELETE /api/ide/repository/:id/file/:path
+   Response: { success: true }
+
+
+INTEGRATED TERMINAL (Bottom)
+────────────────────────────
+IntegratedTerminal.jsx
+├─ xterm.js for terminal emulation
+├─ Execute commands in Docker containers
+├─ Show output in real-time
+├─ Support for:
+│  ├─ Python execution
+│  ├─ npm/yarn commands
+│  ├─ Maven commands
+│  ├─ Go build commands
+│  └─ Custom scripts
+│
+├─ Terminal Input:
+│  $ python test_api.py
+│  $ mvn clean test
+│  $ npm install && npm test
+│  $ python -m pytest --cov=src tests/
+│
+├─ Terminal Output:
+│  (displayed in real-time)
+│
+└─ API: WebSocket /ws/ide/repository/:id/terminal
+   ├─ Send: { command: "python test_api.py" }
+   └─ Receive: { output: "...terminal output..." }
+
+
+GIT PANEL (Bottom-Left)
+────────────────────────
+GitPanel.jsx
+├─ Current Branch Display
+│  └─ Branch: main
+│
+├─ Repository Status
+│  ├─ Modified files (3)
+│  ├─ Untracked files (1)
+│  └─ File list with diffs
+│
+├─ Commit Controls
+│  ├─ Commit message input
+│  └─ [Commit] button
+│
+├─ Push/Pull Controls
+│  ├─ [Pull] - fetch latest from origin
+│  ├─ [Push] - push to origin
+│  └─ Sync status
+│
+├─ Branch Management
+│  ├─ [New Branch] - create feature branch
+│  └─ [Switch Branch] - checkout branch
+│
+└─ API Endpoints:
+   ├─ GET /api/ide/repository/:id/status
+      Response: { branch: "main", modified: [...], untracked: [...] }
+   │
+   ├─ GET /api/ide/repository/:id/diff
+      Response: { files: [{path, additions, deletions, patch: "..."}] }
+   │
+   ├─ POST /api/ide/repository/:id/commit
+      Body: { message: "Fixed API endpoint" }
+      Response: { success: true, commit_sha: "abc123" }
+   │
+   ├─ POST /api/ide/repository/:id/push
+      Response: { success: true, remote_branch: "origin/main" }
+   │
+   └─ POST /api/ide/repository/:id/pull
+      Response: { success: true, updated_files: [...] }
+
+
+BUILD & TEST PANEL (Right)
+──────────────────────────
+BuildTestPanel.jsx
+├─ Runtime Selection
+│  └─ Dropdown: [Select Runtime ↓]
+│     ├─ Python 3.11
+│     ├─ Node.js 18
+│     ├─ Maven 3.9
+│     ├─ Go 1.20
+│     ├─ Ruby 3.2
+│     └─ Java 17
+│
+├─ Build Commands
+│  ├─ Python:
+│  │  ├─ [Run Tests] → pytest
+│  │  ├─ [Check Coverage] → pytest --cov
+│  │  └─ [Run Script] → python script.py
+│  │
+│  ├─ Node.js:
+│  │  ├─ [Install] → npm install
+│  │  ├─ [Test] → npm test
+│  │  ├─ [Build] → npm run build
+│  │  └─ [Lint] → npm run lint
+│  │
+│  ├─ Maven:
+│  │  ├─ [Compile] → mvn compile
+│  │  ├─ [Test] → mvn test
+│  │  └─ [Build] → mvn clean package
+│  │
+│  └─ Other:
+│     ├─ [Custom Command]
+│     └─ Input field: $ ___________
+│
+├─ Execution Status
+│  ├─ Running: [spinner] mvn test (2.3s elapsed)
+│  ├─ Success: ✓ npm test passed (12.5s)
+│  └─ Failed: ✗ pytest failed (Exit code: 1)
+│
+├─ Test Results
+│  └─ Expandable list:
+│     ├─ ✓ test_api.py (2.34s)
+│     ├─ ✓ test_utils.py (1.23s)
+│     ├─ ✗ test_db.py (Connection error)
+│     └─ Coverage: 87.5%
+│
+└─ API Endpoints:
+   ├─ POST /api/ide/repository/:id/run
+      Body: { command: "python -m pytest tests/", runtime: "python3.11" }
+      Response: { execution_id: "exec_123", output: "..." }
+   │
+   ├─ WebSocket /ws/ide/repository/:id/run/:execution_id
+      (stream execution output)
+   │
+   └─ GET /api/ide/repository/:id/run/:execution_id/result
+      Response: { status: "completed", exitCode: 0, output: "..." }
+
+
+VALIDATION PANEL (Modal)
+────────────────────────
+ValidationPanel.jsx
+├─ Trigger: [Start Validation] button
+├─ Validation Steps:
+│  ├─ 1. Security Scan
+│  │  ├─ Detect secrets
+│  │  ├─ Check for hardcoded credentials
+│  │  └─ Status: Running... ⏳
+│  │
+│  ├─ 2. Dependency Check
+│  │  ├─ Extract dependencies
+│  │  ├─ Check CVEs
+│  │  └─ Status: Pending ⏳
+│  │
+│  ├─ 3. Code Quality
+│  │  ├─ Lint check
+│  │  ├─ Code complexity
+│  │  └─ Status: Pending ⏳
+│  │
+│  └─ 4. Test Coverage
+│     ├─ Run tests
+│     ├─ Measure coverage
+│     └─ Status: Pending ⏳
+│
+├─ Results Summary
+│  ├─ ✓ No secrets found
+│  ├─ ✓ All dependencies secure
+│  ├─ ✓ Code quality: A
+│  ├─ ✓ Test coverage: 87.5% ✅
+│  └─ Overall: PASSED ✅
+│
+└─ Actions:
+   ├─ [📋 Download Report]
+   ├─ [🔄 Revalidate]
+   └─ [🎉 Create PR]
+```
+
+---
+
+## 🔧 Backend Services & APIs
+
+### Service Architecture
+
+```
+Backend (Node.js/Express)
+├─ GitService (src/services/GitService.js)
+├─ DockerService (src/services/DockerService.js)
+├─ FileService (src/services/FileService.js)
+├─ ExecutionService (src/services/ExecutionService.js)
+├─ ValidationService (src/services/ValidationService.js)
+└─ IDESessionService (src/services/IDESessionService.js)
+
+Routes (src/routes/)
+├─ ide.js (IDE operations)
+└─ validation.js (validation requests)
+
+Models (src/models/)
+├─ IDESession.js
+├─ ExecutionLog.js
+└─ ValidationRequest.js
+```
+
+### API Endpoint Details
+
+```
+FILE OPERATIONS
+───────────────
+
+GET /api/ide/repository/:id
+├─ Get repository metadata
+├─ Middleware: auth, authorize
+└─ Response:
+   {
+     id: 123,
+     name: "api-repo",
+     path: "/tmp/repos/123",
+     branch: "main",
+     files_count: 47,
+     last_updated: "2024-04-20T10:30:00Z"
+   }
+
+GET /api/ide/repository/:id/files
+├─ List all files & directories
+├─ Recursive tree structure
+└─ Response:
+   {
+     files: [
+       { path: "src/api.py", size: 1024, modified: "..." },
+       { path: "src/utils.py", size: 512, modified: "..." }
+     ],
+     directories: ["src", "tests", "build"]
+   }
+
+GET /api/ide/repository/:id/file/:filepath
+├─ Read file contents
+├─ Supported: Any text file
+└─ Response:
+   {
+     content: "def hello():\n  print('Hello')\n",
+     language: "python",
+     size: 256,
+     encoding: "utf-8"
+   }
+
+POST /api/ide/repository/:id/file/:filepath
+├─ Create/update file
+├─ Body: { content: "new file content" }
+└─ Response:
+   {
+     success: true,
+     saved: true,
+     lastModified: "2024-04-20T10:35:00Z",
+     size: 256
+   }
+
+DELETE /api/ide/repository/:id/file/:filepath
+├─ Delete file
+└─ Response: { success: true, deleted: true }
+
+
+GIT OPERATIONS
+──────────────
+
+GET /api/ide/repository/:id/status
+├─ Git status (branch, modified files)
+├─ Backend execution:
+│  cd /tmp/repos/123
+│  git status --porcelain
+│  git branch
+│  git log -1 --oneline
+│
+└─ Response:
+   {
+     branch: "main",
+     remote: "origin",
+     modified_files: [
+       "src/api.py",
+       "src/utils.py",
+       "test.py"
+     ],
+     untracked_files: ["config.local.json"],
+     ahead: 0,
+     behind: 0
+   }
+
+GET /api/ide/repository/:id/diff
+├─ Show changes (like git diff)
+├─ Line-by-line changes
+│
+└─ Response:
+   {
+     files: [
+       {
+         path: "src/api.py",
+         status: "modified",
+         additions: 5,
+         deletions: 2,
+         patch: "@@-42,5 +42,8 @@\n..."
+       }
+     ]
+   }
+
+POST /api/ide/repository/:id/commit
+├─ Create git commit
+├─ Body: { message: "Fixed API endpoint", author: { name, email } }
+├─ Backend execution:
+│  cd /tmp/repos/123
+│  git config user.name "John Developer"
+│  git config user.email "dev@company.com"
+│  git add .
+│  git commit -m "Fixed API endpoint"
+│
+├─ Audit log: USER#1 COMMIT_CREATED REPO#123 MESSAGE:"Fixed..."
+└─ Response:
+   {
+     success: true,
+     commit_sha: "abc123def456",
+     message: "Fixed API endpoint",
+     timestamp: "2024-04-20T10:40:00Z"
+   }
+
+POST /api/ide/repository/:id/push
+├─ Push commits to GitHub
+├─ Uses GitHub credentials from .env or config
+├─ Backend execution:
+│  cd /tmp/repos/123
+│  git push origin main
+│
+├─ Audit log: USER#1 PUSH REPO#123 BRANCH:main COMMITS:1
+└─ Response:
+   {
+     success: true,
+     remote_branch: "origin/main",
+     commits_pushed: 1,
+     timestamp: "2024-04-20T10:42:00Z"
+   }
+
+POST /api/ide/repository/:id/pull
+├─ Fetch and merge from GitHub
+├─ Backend execution:
+│  cd /tmp/repos/123
+│  git pull origin main
+│
+└─ Response:
+   {
+     success: true,
+     updated_files: ["src/api.py"],
+     conflicts: [],
+     timestamp: "2024-04-20T10:44:00Z"
+   }
+
+POST /api/ide/repository/:id/branch
+├─ Create new branch
+├─ Body: { branch_name: "feature/new-api" }
+├─ Backend execution:
+│  cd /tmp/repos/123
+│  git checkout -b feature/new-api
+│
+└─ Response:
+   {
+     success: true,
+     branch: "feature/new-api",
+     created: "2024-04-20T10:45:00Z"
+   }
+
+
+BUILD & EXECUTION
+─────────────────
+
+POST /api/ide/repository/:id/run
+├─ Execute code in Docker container
+├─ Body: { 
+│    command: "python -m pytest tests/",
+│    runtime: "python3.11",
+│    timeout: 300
+│  }
+│
+├─ Backend execution:
+│  1. Create session ID: exec_12345
+│  2. Pull Docker image: python:3.11-slim
+│  3. Create container:
+│     docker run -d \
+│       --name ide_exec_12345 \
+│       -v /tmp/repos/123:/workspace \
+│       -w /workspace \
+│       python:3.11-slim \
+│       /bin/bash -c "python -m pytest tests/"
+│  4. Stream output to WebSocket
+│  5. Wait for completion
+│  6. Save results to database
+│
+└─ Response (immediate):
+   {
+     execution_id: "exec_12345",
+     status: "running",
+     command: "python -m pytest tests/",
+     started_at: "2024-04-20T10:46:00Z"
+   }
+
+WebSocket /ws/ide/repository/:id/terminal
+├─ Stream terminal output in real-time
+├─ Messages:
+│  ├─ Server → Client: { type: "output", data: "Running tests...\n" }
+│  ├─ Server → Client: { type: "status", data: "running" }
+│  └─ Server → Client: { type: "done", exitCode: 0 }
+│
+└─ Client → Server:
+   ├─ { type: "input", data: "python script.py\n" }
+   └─ { type: "kill", signal: "SIGTERM" }
+
+GET /api/ide/repository/:id/run/:execution_id/result
+├─ Get execution result (after completion)
+├─ Database query:
+│  SELECT * FROM execution_logs
+│  WHERE repository_id = :id
+│  AND id = :execution_id
+│
+└─ Response:
+   {
+     execution_id: "exec_12345",
+     status: "completed",
+     exitCode: 0,
+     output: "...full output...",
+     duration: 12.5,
+     timestamp: "2024-04-20T10:47:00Z",
+     container_id: "abc123def456...",
+     test_results: {
+       passed: 42,
+       failed: 0,
+       coverage: 87.5
+     }
+   }
+
+
+VALIDATION
+──────────
+
+POST /api/ide/repository/:id/validate
+├─ Start validation process
+├─ Body: { commit_message: "Fixed API endpoint" }
+│
+├─ Backend execution:
+│  1. Save current state as validation_request
+│  2. Run security scan (in Docker container)
+│  3. Check dependencies (npm audit, pip audit)
+│  4. Run tests (with coverage)
+│  5. Code quality analysis
+│  6. Compile results
+│
+├─ Database:
+│  INSERT INTO validation_requests (
+│    user_id: 1,
+│    repository_id: 123,
+│    commit_message: "Fixed API endpoint",
+│    status: "in_progress",
+│    started_at: now()
+│  )
+│
+└─ Response:
+   {
+     validation_id: "val_567",
+     status: "in_progress",
+     message: "Validation started..."
+   }
+
+GET /api/ide/repository/:id/validate/:validation_id
+├─ Get validation progress/results
+├─ Database query:
+│  SELECT * FROM validation_requests
+│  WHERE id = :validation_id
+│
+└─ Response:
+   {
+     validation_id: "val_567",
+     status: "completed",
+     results: {
+       security: { status: "passed", issues: 0 },
+       dependencies: { status: "passed", vulnerabilities: 0 },
+       tests: { status: "passed", coverage: 87.5 },
+       code_quality: { status: "passed", grade: "A" }
+     },
+     can_create_pr: true
+   }
+
+POST /api/ide/repository/:id/validate/:validation_id/create-pr
+├─ Create GitHub PR from validated code
+├─ Calls GitHubService.createPR()
+├─ GitHub API call to create PR
+│
+├─ Database:
+│  UPDATE validation_requests SET
+│    pr_id = 1234,
+│    pr_url = "https://...",
+│    status = "pr_created"
+│  WHERE id = "val_567"
+│
+└─ Response:
+   {
+     pr_id: 1234,
+     pr_url: "https://github.com/company/repo/pull/1234",
+     created_at: "2024-04-20T10:50:00Z"
+   }
+```
+
+---
+
+## 🐳 Docker Integration
+
+### Multi-Runtime Docker Setup
+
+```
+DOCKER IMAGES IN USE
+────────────────────
+
+1. PYTHON 3.11
+   ──────────────
+   Image: python:3.11-slim
+   Pre-installed:
+   ├─ pip
+   ├─ pytest
+   ├─ coverage
+   ├─ black (formatter)
+   ├─ flake8 (linter)
+   └─ gitguardian (secrets detection)
+
+   Usage:
+   docker run -v /tmp/repos/123:/workspace -w /workspace python:3.11-slim \
+     /bin/bash -c "pip install -r requirements.txt && pytest --cov"
+
+   Supported commands:
+   ├─ python script.py
+   ├─ pytest tests/
+   ├─ pytest --cov=src tests/
+   ├─ pip install -r requirements.txt
+   └─ black src/ --check
+
+
+2. NODE.JS 18
+   ──────────────
+   Image: node:18-alpine
+   Pre-installed:
+   ├─ npm
+   ├─ yarn
+   ├─ jest (testing)
+   ├─ webpack
+   ├─ eslint
+   └─ snyk (dependency scanning)
+
+   Usage:
+   docker run -v /tmp/repos/123:/workspace -w /workspace node:18-alpine \
+     /bin/bash -c "npm install && npm test"
+
+   Supported commands:
+   ├─ npm install
+   ├─ npm test
+   ├─ npm run build
+   ├─ npm run lint
+   ├─ npm audit (dependencies)
+   └─ npm run coverage
+
+
+3. MAVEN 3.9 (for Java)
+   ──────────────────────
+   Image: maven:3.9-openjdk-17
+   Pre-installed:
+   ├─ mvn
+   ├─ junit
+   ├─ jacoco (coverage)
+   ├─ spotbugs (code analysis)
+   └─ sonarqube-maven-plugin
+
+   Usage:
+   docker run -v /tmp/repos/123:/workspace -w /workspace maven:3.9-openjdk-17 \
+     /bin/bash -c "mvn clean test"
+
+   Supported commands:
+   ├─ mvn clean
+   ├─ mvn compile
+   ├─ mvn test
+   ├─ mvn test -Dtest=TestClass
+   ├─ mvn clean package
+   ├─ mvn clean install
+   └─ mvn dependency:tree
+
+
+4. GO 1.20
+   ─────────
+   Image: golang:1.20-alpine
+   Pre-installed:
+   ├─ go
+   ├─ gofmt
+   ├─ goimports
+   ├─ golangci-lint
+   └─ gosec (security)
+
+   Usage:
+   docker run -v /tmp/repos/123:/workspace -w /workspace golang:1.20-alpine \
+     /bin/bash -c "go test ./..."
+
+   Supported commands:
+   ├─ go test ./...
+   ├─ go test -cover
+   ├─ go test -race
+   ├─ go build
+   ├─ go fmt ./...
+   └─ golangci-lint run
+
+
+5. RUBY 3.2
+   ─────────
+   Image: ruby:3.2-alpine
+   Pre-installed:
+   ├─ bundler
+   ├─ rspec (testing)
+   ├─ simplecov (coverage)
+   ├─ rubocop (linter)
+   └─ bundler-audit (deps)
+
+   Usage:
+   docker run -v /tmp/repos/123:/workspace -w /workspace ruby:3.2-alpine \
+     /bin/bash -c "bundle install && rspec"
+
+   Supported commands:
+   ├─ bundle install
+   ├─ rspec
+   ├─ rspec --format documentation
+   ├─ rubocop
+   ├─ bundle audit (deps)
+   └─ rake test
+
+
+6. POSTGRESQL 15 (for testing DB operations)
+   ──────────────────────────────────────────
+   Image: postgres:15-alpine
+   Pre-installed:
+   ├─ PostgreSQL 15
+   ├─ psql CLI
+   └─ pg_dump, pg_restore
+
+   Usage (as linked container):
+   docker run -d --name test_db \
+     -e POSTGRES_PASSWORD=test \
+     -e POSTGRES_DB=testdb \
+     postgres:15-alpine
+
+   docker run --link test_db:postgres \
+     -e DATABASE_URL=postgresql://postgres:test@postgres:5432/testdb \
+     python:3.11-slim \
+     /bin/bash -c "pytest tests/"
+
+
+CONTAINER ORCHESTRATION
+──────────────────────
+
+When running code, DockerService:
+
+1. Detects runtime from repository:
+   ├─ Python: requirements.txt, setup.py, pyproject.toml
+   ├─ Node.js: package.json
+   ├─ Java: pom.xml
+   ├─ Go: go.mod
+   └─ Ruby: Gemfile
+
+2. Selects appropriate image
+
+3. Creates container:
+   docker run -d \
+     --name ide_exec_<session_id> \
+     --cpus=2 \
+     --memory=512m \
+     -v /tmp/repos/<repo_id>:/workspace \
+     -w /workspace \
+     -e DATABASE_URL=... (if testing DB) \
+     -e NODE_ENV=test \
+     <image_name> \
+     /bin/bash -c "<command>"
+
+4. Streams output to frontend via WebSocket
+
+5. Waits for exit code
+
+6. Cleans up container:
+   docker stop ide_exec_<session_id>
+   docker rm ide_exec_<session_id>
+
+Resource limits:
+├─ CPU: 2 cores max
+├─ Memory: 512MB max
+├─ Timeout: 5 minutes (configurable)
+├─ Disk: 1GB per container
+└─ Network: Isolated (no internet access)
+```
+
+---
+
+## 📋 Implementation Plan
+
+### Phase 1: Core IDE (Week 1)
+
+```
+Frontend Components to Build:
+1. FileExplorer.jsx
+   ├─ Tree view of files
+   ├─ Click to edit
+   ├─ Right-click context menu
+   └─ API integration
+
+2. CodeEditor.jsx
+   ├─ Monaco Editor integration
+   ├─ Syntax highlighting
+   ├─ Save on change
+   └─ Git diff highlighting
+
+3. IntegratedTerminal.jsx
+   ├─ xterm.js terminal
+   ├─ WebSocket connection
+   ├─ Real-time output streaming
+   └─ Command execution
+
+Backend Services to Build:
+1. FileService
+   ├─ Read file
+   ├─ Write file
+   ├─ List directory
+   └─ Delete file
+
+2. GitService
+   ├─ Clone repository
+   ├─ Get status
+   ├─ Get diff
+   ├─ Commit
+   ├─ Push
+   ├─ Pull
+   └─ Branch management
+
+3. IDESessionService
+   ├─ Create session
+   ├─ Track open files
+   ├─ Manage state
+   └─ Cleanup
+
+Database Schema:
+CREATE TABLE ide_sessions (
+  id INT PRIMARY KEY,
+  user_id INT,
+  repository_id INT,
+  opened_at TIMESTAMP,
+  closed_at TIMESTAMP,
+  active BOOLEAN
+);
+
+CREATE TABLE execution_logs (
+  id INT PRIMARY KEY,
+  session_id INT,
+  command VARCHAR,
+  output TEXT,
+  exit_code INT,
+  duration FLOAT,
+  started_at TIMESTAMP,
+  completed_at TIMESTAMP
+);
+```
+
+### Phase 2: Build & Test (Week 2)
+
+```
+DockerService to Build:
+1. Detect runtime
+2. Pull image
+3. Create container
+4. Run command
+5. Stream output
+6. Collect results
+7. Cleanup
+
+ExecutionService to Build:
+1. Queue commands
+2. Track execution
+3. Handle timeouts
+4. Capture output
+5. Parse results
+6. Store logs
+
+Features:
+├─ Real-time output streaming
+├─ Progress indication
+├─ Test result parsing
+├─ Coverage reporting
+└─ Error handling
+```
+
+### Phase 3: Validation (Week 3)
+
+```
+ValidationService enhancements:
+1. Run within IDE
+2. Display results
+3. Save validation
+4. Track history
+
+Features:
+├─ Security scan
+├─ Dependency check
+├─ Code quality
+├─ Test coverage
+└─ Report generation
+```
+
+### Phase 4: GitHub Integration (Week 4)
+
+```
+GitHub PR creation:
+1. From validated code
+2. With commit message
+3. Automatic notification
+4. Approval workflow
+
+Features:
+├─ PR template
+├─ Auto-PR
+├─ Review assignment
+└─ Merge on approval
+```
+
+---
+
+## 💾 Database Schema
+
+```sql
+-- IDE Sessions
+CREATE TABLE ide_sessions (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id),
+  repository_id INT NOT NULL REFERENCES repositories(id),
+  workspace_path VARCHAR(255),
+  current_branch VARCHAR(100),
+  opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  closed_at TIMESTAMP,
+  active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Execution Logs
+CREATE TABLE execution_logs (
+  id SERIAL PRIMARY KEY,
+  ide_session_id INT REFERENCES ide_sessions(id),
+  command VARCHAR(500),
+  runtime VARCHAR(50), -- python3.11, node18, maven39, etc.
+  output TEXT,
+  exit_code INT,
+  duration FLOAT, -- seconds
+  started_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  container_id VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Validation Requests (Enhanced)
+CREATE TABLE validation_requests (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id),
+  repository_id INT NOT NULL REFERENCES repositories(id),
+  ide_session_id INT REFERENCES ide_sessions(id),
+  commit_message TEXT,
+  status VARCHAR(50), -- pending, in_progress, passed, failed
+  security_scan JSONB,
+  dependency_check JSONB,
+  test_results JSONB,
+  code_quality JSONB,
+  pr_id INT,
+  pr_url VARCHAR(255),
+  started_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- File Changes (Track IDE edits)
+CREATE TABLE file_changes (
+  id SERIAL PRIMARY KEY,
+  ide_session_id INT REFERENCES ide_sessions(id),
+  file_path VARCHAR(255),
+  change_type VARCHAR(20), -- created, modified, deleted
+  old_content TEXT,
+  new_content TEXT,
+  changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Terminal History
+CREATE TABLE terminal_history (
+  id SERIAL PRIMARY KEY,
+  ide_session_id INT REFERENCES ide_sessions(id),
+  command VARCHAR(500),
+  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+## 🔒 Security Considerations
+
+```
+1. CONTAINER ISOLATION
+   ├─ Read-only file systems where possible
+   ├─ Resource limits (CPU, memory, disk)
+   ├─ Network isolation (no internet access)
+   └─ User namespacing (non-root user inside)
+
+2. CODE EXECUTION
+   ├─ Timeout on all commands (5 minutes default)
+   ├─ Kill zombie processes
+   ├─ Clean up containers after execution
+   └─ No access to host system
+
+3. FILE ACCESS
+   ├─ Only within repository directory
+   ├─ No symlink escapes
+   ├─ Validate file paths
+   └─ Prevent directory traversal attacks
+
+4. CREDENTIALS
+   ├─ GitHub token stored in secure env vars
+   ├─ Never expose in logs
+   ├─ Rotate tokens regularly
+   └─ Audit all git operations
+
+5. AUDIT LOGGING
+   ├─ Log all file changes
+   ├─ Log all commands executed
+   ├─ Log all git operations
+   ├─ Log all validation results
+   └─ Log all PR creations
+```
+
+---
+
+## 📊 Example Workflow
+
+```
+USER WORKFLOW: PYTHON CODE DEVELOPMENT
+─────────────────────────────────────
+
+1. User opens IDE in browser
+   GET http://localhost:3000/ide/repository/123
+   
+   Frontend loads:
+   ├─ Repository: api-repo
+   ├─ Branch: feature/auth
+   ├─ Files: src/, tests/, requirements.txt
+   └─ Last edit: 2 hours ago
+
+2. User clicks on src/api.py
+   Frontend calls: GET /api/ide/repository/123/file/src/api.py
+   
+   Response:
+   {
+     content: "def create_user(name, email):\n  return User(name, email)\n",
+     language: "python",
+     modified: false
+   }
+   
+   Monaco Editor displays: syntax-highlighted Python code
+
+3. User edits code (changes implementation)
+   ├─ Adds logging
+   ├─ Adds validation
+   ├─ Adds error handling
+
+4. User saves file
+   Frontend calls: POST /api/ide/repository/123/file/src/api.py
+   Body: { content: "...updated content..." }
+   
+   Backend:
+   ├─ Writes file to disk: /tmp/repos/123/src/api.py
+   ├─ Git detects change
+   └─ File appears in Git panel as "modified"
+
+5. User clicks [Run Tests] in Build panel
+   Frontend calls: POST /api/ide/repository/123/run
+   Body: {
+     command: "pytest tests/ --cov=src",
+     runtime: "python3.11",
+     timeout: 300
+   }
+   
+   Backend execution:
+   ├─ Creates execution: exec_999
+   ├─ Pulls image: python:3.11-slim (cached)
+   ├─ Starts container:
+   │  docker run -v /tmp/repos/123:/workspace -w /workspace \
+   │    python:3.11-slim python -m pytest tests/ --cov=src
+   │
+   ├─ Streams output to WebSocket:
+   │  "Running tests..."
+   │  "test_api.py PASSED [50%]"
+   │  "test_utils.py PASSED [100%]"
+   │  "Coverage: 87.5%"
+   │
+   └─ Saves result to database
+
+6. User sees in Terminal:
+   ✓ All tests passed
+   ✓ Coverage: 87.5%
+   
+   Build Panel shows: [Green checkmark]
+
+7. User types commit message: "Added user validation"
+   Clicks [Commit] in Git Panel
+   
+   Frontend calls: POST /api/ide/repository/123/commit
+   Body: { message: "Added user validation" }
+   
+   Backend:
+   ├─ Stages changes: git add .
+   ├─ Creates commit: git commit -m "Added user validation"
+   ├─ Commits hash: abc123def456
+   └─ Git Panel shows: "✓ Committed 1 file(s)"
+
+8. User clicks [Push] in Git Panel
+   Frontend calls: POST /api/ide/repository/123/push
+   
+   Backend:
+   ├─ Pushes to origin: git push origin feature/auth
+   ├─ Updates remote
+   └─ Git Panel shows: "✓ Pushed to origin/feature/auth"
+
+9. User clicks [Start Validation]
+   Frontend shows: "Validating code..."
+   
+   Backend runs:
+   ├─ Security scan (detects no secrets ✓)
+   ├─ Dependency check (all up-to-date ✓)
+   ├─ Code quality (grade A ✓)
+   ├─ Test coverage (87.5% > 80% ✓)
+   
+   Results:
+   ✓ Validation PASSED
+
+10. User clicks [Create PR]
+    Frontend calls: POST /api/ide/repository/123/validate/val_567/create-pr
+    
+    Backend:
+    ├─ Calls GitHub API
+    ├─ Creates PR on GitHub
+    ├─ PR #456 created
+    └─ Shows link: https://github.com/company/repo/pull/456
+
+11. User clicks link → Opens GitHub
+    ├─ PR shows changes
+    ├─ CI/CD runs automatically
+    ├─ Code reviewers notified
+    ├─ Waiting for approval...
+
+12. User monitors in CIMP IDE
+    Validation tab shows:
+    ├─ PR #456 created ✓
+    ├─ CI status: Running
+    ├─ Code review: Pending
+    └─ All checks pass ✓
+
+RESULT: Code safely validated & ready for review! 🎉
+```
+
+---
+
+## 🚀 Advantages Over Codespaces
+
+```
+ADVANTAGES OF INTEGRATED IDE
+─────────────────────────────
+
+1. NO EXTERNAL DEPENDENCIES
+   ✓ Doesn't rely on GitHub Codespaces API
+   ✓ No subscription costs
+   ✓ Full control over environment
+   ✓ Works offline (with local repos)
+
+2. NATIVE INTEGRATION
+   ✓ Validation built into same tool
+   ✓ No context switching
+   ✓ Single sign-on (same user)
+   ✓ Direct database access
+
+3. ENTERPRISE-FRIENDLY
+   ✓ On-prem deployment possible
+   ✓ No external cloud vendor lock-in
+   ✓ Data stays within network
+   ✓ Custom Docker images allowed
+
+4. DEVELOPER EXPERIENCE
+   ✓ Faster (local Docker vs cloud VMs)
+   ✓ Multi-language support (Python, Node, Java, Go, Ruby)
+   ✓ Real-time feedback
+   ✓ Integrated testing & validation
+
+5. COST EFFECTIVE
+   ✓ Single infrastructure (not Codespaces + IDE)
+   ✓ Lower bandwidth (local containers)
+   ✓ Scalable (more devs = same infra cost)
+   ✓ No GitHub Codespaces pricing
+
+6. CUSTOMIZATION
+   ✓ Create custom Docker images
+   ✓ Add proprietary tools
+   ✓ Modify workflows
+   ✓ Custom validation rules
+
+WHEN TO USE THIS INSTEAD OF CODESPACES:
+───────────────────────────────────────
+✓ Enterprise deployments
+✓ Budget constraints
+✓ On-premise requirements
+✓ Custom tooling needs
+✓ Multi-language projects
+✓ Complex validation requirements
+✓ Want complete control
+✓ High security requirements
+```
+
+---
+
+## 🛠️ Technologies Required
+
+```
+FRONTEND
+────────
+├─ React 18
+├─ Monaco Editor (VS Code's editor)
+├─ xterm.js (terminal emulation)
+├─ TailwindCSS (styling)
+├─ axios (HTTP)
+├─ websocket (real-time updates)
+└─ zustand (state management)
+
+BACKEND
+───────
+├─ Node.js 18
+├─ Express 4.x
+├─ Docker SDK for Node.js
+├─ simple-git (Git operations)
+├─ Octokit (GitHub API)
+├─ ws (WebSocket)
+├─ PostgreSQL driver
+└─ jwt-decode (authentication)
+
+DOCKER
+──────
+├─ Docker CE (Community Edition)
+├─ Docker Compose (orchestration)
+├─ Custom images:
+│  ├─ python:3.11-slim
+│  ├─ node:18-alpine
+│  ├─ maven:3.9-openjdk-17
+│  ├─ golang:1.20-alpine
+│  └─ ruby:3.2-alpine
+└─ Registry (optional, for custom images)
+
+INFRASTRUCTURE
+──────────────
+├─ Linux server (8GB RAM, 50GB disk)
+├─ PostgreSQL 15
+├─ Docker daemon running
+└─ Port 3000 (frontend), 3001 (backend)
+```
+
+This is your **complete integrated IDE solution without Codespaces**! 🎯
