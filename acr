@@ -1,0 +1,1028 @@
+# Azure Container Registry (ACR) Integration with GitHub Codespaces
+
+## Overview
+
+This document provides a comprehensive guide to integrating **Azure Container Registry (ACR)** with **GitHub Codespaces** to ensure consistent package versions and dependencies across all development, staging, and production environments.
+
+---
+
+## Problem Statement
+
+### Current Challenges Without ACR Integration
+
+**Environment Inconsistency:**
+- Developers use different package versions locally
+- "Works on my machine" but fails in CI/CD
+- Staging and production have different dependencies
+- Docker images built in different environments produce different results
+
+**Package Management Issues:**
+- npm/pip versions drift over time
+- No central source of truth for dependencies
+- Hard to reproduce exact environment
+- Manual synchronization error-prone
+
+**Security & Compliance:**
+- No audit trail of package versions used
+- No centralized scanning for vulnerabilities
+- No enforcement of approved package versions
+- Compliance requirements not met
+
+**Time Wasted:**
+- Debugging environment-specific issues
+- Rebuilding dependencies multiple times
+- Manual Docker image creation
+- Version compatibility troubleshooting
+
+---
+
+## Solution: Azure Container Registry (ACR)
+
+### What is ACR?
+
+Azure Container Registry is a managed, private Docker registry service that allows you to:
+- ✅ Store Docker images in Azure (encrypted, secure)
+- ✅ Manage image versions and tags
+- ✅ Scan images for vulnerabilities
+- ✅ Control access via Azure RBAC
+- ✅ Integrate with CI/CD pipelines
+- ✅ Serve as single source of truth for environments
+
+### Architecture
+
+```
+Git Repository
+    ↓ (Commit)
+GitHub Actions / CI/CD Pipeline
+    ↓ (Build Docker Image)
+Azure Container Registry
+    ↓ (Store Image)
+├─ cimp-api:v1.2.3
+├─ cimp-api:latest
+├─ cimp-blazor:v1.2.3
+├─ cimp-blazor:latest
+├─ cimp-db-migrate:v1.2.3
+└─ cimp-dev:latest
+    ↓ (Pull Image)
+GitHub Codespaces
+├─ cimp-api (exact versions)
+├─ cimp-blazor (exact versions)
+└─ All dependencies locked
+    ↓ (Pull Image)
+Staging Environment
+├─ cimp-api (exact versions)
+├─ cimp-blazor (exact versions)
+└─ All dependencies locked
+    ↓ (Pull Image)
+Production Environment
+├─ cimp-api (exact versions)
+├─ cimp-blazor (exact versions)
+└─ All dependencies locked
+```
+
+---
+
+## Benefits of ACR Integration
+
+| Benefit | Impact |
+|---------|--------|
+| **Version Consistency** | Same exact versions in dev, staging, prod |
+| **Faster Onboarding** | New devs get pre-built images, no setup time |
+| **Reproducibility** | Anyone can reproduce exact environment |
+| **Security** | Vulnerability scanning, signed images |
+| **Compliance** | Audit trail, image signing, RBAC |
+| **CI/CD Integration** | Automated builds, automated testing |
+| **Cost Savings** | Cache reuse, reduced build time |
+| **Disaster Recovery** | Quick environment recreation |
+
+---
+
+## Setup: Step-by-Step
+
+### Step 1: Create Azure Container Registry
+
+#### Via Azure Portal
+
+1. Go to `portal.azure.com`
+2. Click "Create a resource"
+3. Search for "Container Registry"
+4. Click "Create"
+5. Fill in details:
+   - **Resource Group:** Create or select existing
+   - **Registry Name:** `cimpregistry` (must be unique)
+   - **Location:** Same as your CI/CD infrastructure
+   - **SKU:** Premium (for vulnerability scanning)
+
+#### Via Azure CLI
+
+```bash
+# Login to Azure
+az login
+
+# Create resource group
+az group create \
+  --name cimp-rg \
+  --location eastus
+
+# Create Azure Container Registry
+az acr create \
+  --resource-group cimp-rg \
+  --name cimpregistry \
+  --sku Premium \
+  --location eastus
+
+# Get login credentials
+az acr credential show \
+  --resource-group cimp-rg \
+  --name cimpregistry
+```
+
+**Save these credentials:**
+```
+Login Server: cimpregistry.azurecr.io
+Username: [saved]
+Password: [saved]
+```
+
+### Step 2: Enable Container Scanning
+
+```bash
+# Enable vulnerability scanning
+az acr config content-trust \
+  --registry cimpregistry \
+  --status Enabled
+
+# Enable image scanning
+az acr task create \
+  --registry cimpregistry \
+  --name scan-images \
+  --image 'cimp-api:latest' \
+  --context https://github.com/your-org/cimp-portal.git \
+  --file Dockerfile
+```
+
+### Step 3: Set Up GitHub Authentication
+
+Create GitHub Secret for ACR credentials:
+
+```bash
+# In your GitHub repository:
+# Settings → Secrets and variables → Actions → New repository secret
+
+# Add these secrets:
+ACR_LOGIN_SERVER=cimpregistry.azurecr.io
+ACR_USERNAME=[username]
+ACR_PASSWORD=[password]
+ACR_REGISTRY_NAME=cimpregistry
+```
+
+### Step 4: Create GitHub Codespaces devcontainer.json
+
+File: `.devcontainer/devcontainer.json`
+
+```json
+{
+  "name": "CIMP Portal Development",
+  "image": "cimpregistry.azurecr.io/cimp-dev:latest",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "dockerDashComposeVersion": "v2"
+    },
+    "ghcr.io/devcontainers/features/dotnet:2": {
+      "version": "7.0"
+    },
+    "ghcr.io/devcontainers/features/node:2": {
+      "version": "18"
+    }
+  },
+  "remoteEnv": {
+    "ACR_LOGIN_SERVER": "cimpregistry.azurecr.io",
+    "ACR_REGISTRY_NAME": "cimpregistry",
+    "DOCKER_BUILDKIT": "1"
+  },
+  "remoteUser": "vscode",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-azuretools.vscode-docker",
+        "ms-azure-devops.azure-pipelines",
+        "GitHub.Copilot"
+      ]
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "forwardPorts": [3000, 3001, 5000, 5001, 5432],
+  "portsAttributes": {
+    "3000": {
+      "label": "Frontend",
+      "onAutoForward": "notify"
+    },
+    "3001": {
+      "label": "Backend API",
+      "onAutoForward": "notify"
+    },
+    "5432": {
+      "label": "PostgreSQL",
+      "onAutoForward": "notify"
+    }
+  }
+}
+```
+
+### Step 5: Create Post-Create Script
+
+File: `.devcontainer/post-create.sh`
+
+```bash
+#!/bin/bash
+set -e
+
+echo "🚀 Setting up CIMP Portal development environment..."
+
+# Login to ACR
+echo "📦 Logging into Azure Container Registry..."
+echo "$ACR_PASSWORD" | docker login -u "$ACR_USERNAME" --password-stdin "$ACR_LOGIN_SERVER"
+
+# Pull and tag backend image
+echo "📥 Pulling API image from ACR..."
+docker pull "$ACR_LOGIN_SERVER/cimp-api:latest"
+docker tag "$ACR_LOGIN_SERVER/cimp-api:latest" cimp-api:latest
+
+# Pull and tag Blazor frontend image
+echo "📥 Pulling Blazor image from ACR..."
+docker pull "$ACR_LOGIN_SERVER/cimp-blazor:latest"
+docker tag "$ACR_LOGIN_SERVER/cimp-blazor:latest" cimp-blazor:latest
+
+# Pull database image
+echo "📥 Pulling database image from ACR..."
+docker pull "$ACR_LOGIN_SERVER/cimp-postgres:latest"
+docker tag "$ACR_LOGIN_SERVER/cimp-postgres:latest" cimp-postgres:latest
+
+# Start services using docker-compose
+echo "🐳 Starting Docker services..."
+cd /workspace
+docker-compose up -d
+
+# Install dependencies for Node.js frontend (if using React)
+if [ -f "frontend/package.json" ]; then
+  echo "📚 Installing Node.js dependencies..."
+  cd frontend
+  npm ci  # Use ci instead of install for reproducible builds
+  cd ..
+fi
+
+# Install dependencies for .NET backend (if using .NET)
+if [ -f "CIMPPortal.Api/CIMPPortal.Api.csproj" ]; then
+  echo "📚 Installing .NET dependencies..."
+  dotnet restore CIMPPortal.Api/CIMPPortal.Api.csproj
+  dotnet restore CIMPPortal.Blazor/CIMPPortal.Blazor.csproj
+fi
+
+# Run database migrations
+echo "🗄️ Running database migrations..."
+# Add your migration commands here
+
+echo "✅ Environment setup complete!"
+echo ""
+echo "Available services:"
+echo "  • Frontend: http://localhost:3000"
+echo "  • Backend API: http://localhost:3001"
+echo "  • Database: localhost:5432"
+echo ""
+echo "Run 'docker-compose logs -f' to see logs"
+```
+
+---
+
+## Dockerfile for ACR
+
+### For .NET Backend
+
+File: `CIMPPortal.Api/Dockerfile`
+
+```dockerfile
+# Multi-stage build to reduce image size
+FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build
+WORKDIR /src
+
+# Copy project files
+COPY ["CIMPPortal.Api/CIMPPortal.Api.csproj", "CIMPPortal.Api/"]
+COPY ["CIMPPortal.Shared/CIMPPortal.Shared.csproj", "CIMPPortal.Shared/"]
+
+# Restore dependencies (this layer can be cached)
+RUN dotnet restore "CIMPPortal.Api/CIMPPortal.Api.csproj"
+
+# Copy source code
+COPY . .
+
+# Build
+RUN dotnet build "CIMPPortal.Api/CIMPPortal.Api.csproj" -c Release -o /app/build
+
+# Publish
+FROM build AS publish
+RUN dotnet publish "CIMPPortal.Api/CIMPPortal.Api.csproj" -c Release -o /app/publish
+
+# Runtime
+FROM mcr.microsoft.com/dotnet/aspnet:7.0 AS final
+WORKDIR /app
+
+# Install curl for health checks
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+COPY --from=publish /app/publish .
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:80/health || exit 1
+
+EXPOSE 80
+ENTRYPOINT ["dotnet", "CIMPPortal.Api.dll"]
+```
+
+### For Blazor Frontend
+
+File: `CIMPPortal.Blazor/Dockerfile`
+
+```dockerfile
+FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build
+WORKDIR /src
+
+COPY ["CIMPPortal.Blazor/CIMPPortal.Blazor.csproj", "CIMPPortal.Blazor/"]
+COPY ["CIMPPortal.Shared/CIMPPortal.Shared.csproj", "CIMPPortal.Shared/"]
+
+RUN dotnet restore "CIMPPortal.Blazor/CIMPPortal.Blazor.csproj"
+
+COPY . .
+
+RUN dotnet build "CIMPPortal.Blazor/CIMPPortal.Blazor.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "CIMPPortal.Blazor/CIMPPortal.Blazor.csproj" -c Release -o /app/publish
+
+FROM mcr.microsoft.com/dotnet/aspnet:7.0 AS final
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+COPY --from=publish /app/publish .
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:80/health || exit 1
+
+EXPOSE 80
+ENTRYPOINT ["dotnet", "CIMPPortal.Blazor.dll"]
+```
+
+### For React Frontend (if still using React)
+
+File: `frontend/Dockerfile`
+
+```dockerfile
+# Build stage
+FROM node:18-alpine AS build
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies with exact versions
+RUN npm ci
+
+# Copy source
+COPY . .
+
+# Build
+RUN npm run build
+
+# Runtime stage
+FROM node:18-alpine
+WORKDIR /app
+
+# Install serve to run the app
+RUN npm install -g serve
+
+# Copy built files from build stage
+COPY --from=build /app/build ./build
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+EXPOSE 3000
+CMD ["serve", "-s", "build", "-l", "3000"]
+```
+
+### For PostgreSQL with locked versions
+
+File: `docker-compose.yml` (Updated)
+
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: cimpregistry.azurecr.io/cimp-postgres:15.2  # Exact version from ACR
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: cimp_portal
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    image: cimpregistry.azurecr.io/cimp-api:${API_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: CIMPPortal.Api/Dockerfile
+      cache_from:
+        - cimpregistry.azurecr.io/cimp-api:latest
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=cimp_portal;Username=postgres;Password=${DB_PASSWORD}
+      ACR_LOGIN_SERVER: ${ACR_LOGIN_SERVER}
+    ports:
+      - "5000:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  blazor:
+    image: cimpregistry.azurecr.io/cimp-blazor:${BLAZOR_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: CIMPPortal.Blazor/Dockerfile
+      cache_from:
+        - cimpregistry.azurecr.io/cimp-blazor:latest
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+    ports:
+      - "5001:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  postgres_data:
+```
+
+---
+
+## GitHub Actions: Build & Push to ACR
+
+File: `.github/workflows/build-acr.yml`
+
+```yaml
+name: Build and Push to ACR
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'CIMPPortal.Api/**'
+      - 'CIMPPortal.Blazor/**'
+      - 'Dockerfile*'
+      - '.github/workflows/build-acr.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+env:
+  REGISTRY_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  REGISTRY_USERNAME: ${{ secrets.ACR_USERNAME }}
+  REGISTRY_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+  REGISTRY_NAME: ${{ secrets.ACR_REGISTRY_NAME }}
+  IMAGE_NAME: cimp-api
+  IMAGE_NAME_BLAZOR: cimp-blazor
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(git describe --tags --always --dirty)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Building version: $VERSION"
+      
+      - name: Login to ACR
+        run: |
+          echo "${{ env.REGISTRY_PASSWORD }}" | \
+          docker login -u "${{ env.REGISTRY_USERNAME }}" \
+          --password-stdin "${{ env.REGISTRY_LOGIN_SERVER }}"
+      
+      - name: Build API Docker image
+        run: |
+          docker build \
+            -f CIMPPortal.Api/Dockerfile \
+            -t ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }} \
+            -t ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest \
+            --cache-from ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest \
+            .
+      
+      - name: Push API image to ACR
+        run: |
+          docker push ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+          docker push ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
+      
+      - name: Build Blazor Docker image
+        run: |
+          docker build \
+            -f CIMPPortal.Blazor/Dockerfile \
+            -t ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME_BLAZOR }}:${{ steps.version.outputs.version }} \
+            -t ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME_BLAZOR }}:latest \
+            --cache-from ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME_BLAZOR }}:latest \
+            .
+      
+      - name: Push Blazor image to ACR
+        run: |
+          docker push ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME_BLAZOR }}:${{ steps.version.outputs.version }}
+          docker push ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME_BLAZOR }}:latest
+      
+      - name: Scan images for vulnerabilities
+        run: |
+          az acr scan \
+            --registry ${{ env.REGISTRY_NAME }} \
+            --image ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+          
+          az acr scan \
+            --registry ${{ env.REGISTRY_NAME }} \
+            --image ${{ env.IMAGE_NAME_BLAZOR }}:${{ steps.version.outputs.version }}
+      
+      - name: Create deployment summary
+        run: |
+          echo "## ✅ ACR Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Images Built" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME_BLAZOR }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Available in Codespaces" >> $GITHUB_STEP_SUMMARY
+          echo "Images are now available for GitHub Codespaces to pull:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME_BLAZOR }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Logout from ACR
+        if: always()
+        run: docker logout "${{ env.REGISTRY_LOGIN_SERVER }}"
+```
+
+---
+
+## Using ACR in GitHub Codespaces
+
+### Automatic (Recommended)
+
+When you create a new GitHub Codespace:
+
+1. ✅ `.devcontainer/devcontainer.json` automatically runs
+2. ✅ Post-create script logs into ACR
+3. ✅ All images pulled from ACR with locked versions
+4. ✅ Docker Compose starts all services
+5. ✅ Environment ready in ~2-3 minutes
+
+### Manual Setup (if needed)
+
+```bash
+# Inside Codespace terminal
+
+# Login to ACR
+echo $ACR_PASSWORD | docker login -u $ACR_USERNAME --password-stdin $ACR_LOGIN_SERVER
+
+# Pull specific version
+docker pull $ACR_LOGIN_SERVER/cimp-api:v1.2.3
+docker pull $ACR_LOGIN_SERVER/cimp-blazor:v1.2.3
+
+# Start services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f api
+docker-compose logs -f blazor
+```
+
+---
+
+## Environment Consistency: Dev → Staging → Production
+
+### Development (GitHub Codespaces)
+
+```yaml
+# .devcontainer/devcontainer.json
+image: cimpregistry.azurecr.io/cimp-dev:latest
+services:
+  api: cimpregistry.azurecr.io/cimp-api:latest
+  blazor: cimpregistry.azurecr.io/cimp-blazor:latest
+  postgres: cimpregistry.azurecr.io/cimp-postgres:15.2
+```
+
+### Staging Environment
+
+```bash
+# Deploy using exact version tags
+export API_VERSION=v1.2.3
+export BLAZOR_VERSION=v1.2.3
+
+docker pull cimpregistry.azurecr.io/cimp-api:$API_VERSION
+docker pull cimpregistry.azurecr.io/cimp-blazor:$BLAZOR_VERSION
+
+docker-compose -f docker-compose.staging.yml up -d
+```
+
+### Production Environment
+
+```bash
+# Deploy using exact version tags with security scanning
+export API_VERSION=v1.2.3
+export BLAZOR_VERSION=v1.2.3
+
+# Verify images are scanned
+az acr image show \
+  --registry cimpregistry \
+  --image cimp-api:$API_VERSION
+
+# Deploy
+docker pull cimpregistry.azurecr.io/cimp-api:$API_VERSION
+docker pull cimpregistry.azurecr.io/cimp-blazor:$BLAZOR_VERSION
+
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+---
+
+## Version Management Best Practices
+
+### Tagging Strategy
+
+Use semantic versioning with git tags:
+
+```bash
+# Create a release
+git tag -a v1.2.3 -m "Release version 1.2.3"
+git push origin v1.2.3
+
+# GitHub Actions automatically:
+# 1. Builds image
+# 2. Tags with v1.2.3
+# 3. Tags with 'latest'
+# 4. Pushes to ACR
+```
+
+### Lock File Approach
+
+Create `versions.lock.yml`:
+
+```yaml
+# versions.lock.yml
+images:
+  api:
+    repository: cimpregistry.azurecr.io/cimp-api
+    tag: v1.2.3
+    digest: sha256:abc123...
+    scanned: true
+    vulnerabilities: 0
+  
+  blazor:
+    repository: cimpregistry.azurecr.io/cimp-blazor
+    tag: v1.2.3
+    digest: sha256:def456...
+    scanned: true
+    vulnerabilities: 0
+  
+  postgres:
+    repository: cimpregistry.azurecr.io/cimp-postgres
+    tag: "15.2"
+    digest: sha256:ghi789...
+    scanned: true
+    vulnerabilities: 0
+
+dependencies:
+  dotnet: 7.0.0
+  node: 18.16.0
+  npm: 9.6.7
+
+generated: 2024-04-20T10:30:00Z
+```
+
+---
+
+## Security Features
+
+### 1. Image Signing
+
+```bash
+# Enable content trust
+az acr config content-trust --registry cimpregistry --status Enabled
+
+# Sign images
+docker trust signer add --key /path/to/key.pem mykey cimpregistry.azurecr.io/cimp-api
+```
+
+### 2. Vulnerability Scanning
+
+```bash
+# Automatic scanning on push
+az acr task create \
+  --registry cimpregistry \
+  --name scan-on-push \
+  --image 'cimp-api:latest' \
+  --context . \
+  --file taskfile.yml
+
+# View scan results
+az acr image show-manifests \
+  --registry cimpregistry \
+  --repository cimp-api \
+  --detail
+```
+
+### 3. Role-Based Access Control (RBAC)
+
+```bash
+# Grant GitHub Actions permissions
+az role assignment create \
+  --assignee-object-id <service-principal-id> \
+  --assignee-principal-type ServicePrincipal \
+  --role "AcrPush" \
+  --scope /subscriptions/<subscription-id>/resourceGroups/cimp-rg/providers/Microsoft.ContainerRegistry/registries/cimpregistry
+
+# Grant Codespaces read-only access
+az role assignment create \
+  --assignee-object-id <user-object-id> \
+  --assignee-principal-type User \
+  --role "AcrPull" \
+  --scope /subscriptions/<subscription-id>/resourceGroups/cimp-rg/providers/Microsoft.ContainerRegistry/registries/cimpregistry
+```
+
+---
+
+## Troubleshooting
+
+### Issue: Authentication Failed in Codespace
+
+```bash
+# Solution: Re-login to ACR
+docker logout cimpregistry.azurecr.io
+echo $ACR_PASSWORD | docker login -u $ACR_USERNAME --password-stdin $ACR_LOGIN_SERVER
+
+# Or use managed identity (recommended for Azure)
+az acr login --name cimpregistry
+```
+
+### Issue: Image Pull Timeout
+
+```bash
+# Solution: Check ACR status
+az acr check-health --registry cimpregistry
+
+# Enable geo-replication for faster pulls
+az acr replication create \
+  --registry cimpregistry \
+  --location westus
+```
+
+### Issue: Insufficient Quota
+
+```bash
+# Check current usage
+az acr storage show --registry cimpregistry
+
+# Delete old images
+az acr repository delete \
+  --registry cimpregistry \
+  --repository cimp-api \
+  --tag v1.0.0
+```
+
+---
+
+## Monitoring & Metrics
+
+### GitHub Actions Pipeline
+
+```yaml
+- name: Log build metrics
+  run: |
+    echo "Build Time: ${{ job.duration }}"
+    docker images | grep cimp
+    
+    # Push metrics to Azure
+    az monitor metrics custom create \
+      --resource-group cimp-rg \
+      --metric-name "BuildTime" \
+      --value ${{ job.duration }}
+```
+
+### Cost Optimization
+
+```bash
+# View storage usage
+az acr storage show --registry cimpregistry
+
+# Clean up old images
+az acr run --registry cimpregistry \
+  --cmd "acr purge --filter 'cimp-.*:.*' \
+    --ago 30d \
+    --untagged" /dev/null
+
+# Enable garbage collection
+az acr config retention update \
+  --registry cimpregistry \
+  --status enabled \
+  --days 30
+```
+
+---
+
+## Integration Checklist
+
+### Setup Phase
+- [ ] Create Azure Container Registry (ACR)
+- [ ] Create GitHub secrets for ACR credentials
+- [ ] Enable vulnerability scanning in ACR
+- [ ] Set up ACR Premium SKU for security features
+
+### Configuration Phase
+- [ ] Create `.devcontainer/devcontainer.json`
+- [ ] Create `.devcontainer/post-create.sh`
+- [ ] Update `docker-compose.yml` with ACR images
+- [ ] Create Dockerfiles with multi-stage builds
+
+### CI/CD Phase
+- [ ] Create GitHub Actions workflow (build-acr.yml)
+- [ ] Set up image tagging strategy
+- [ ] Configure automated scanning
+- [ ] Set up RBAC for service principals
+
+### Testing Phase
+- [ ] Test Codespace creation with ACR images
+- [ ] Verify version consistency across environments
+- [ ] Test authentication and permissions
+- [ ] Validate image integrity
+
+### Deployment Phase
+- [ ] Document version tagging procedure
+- [ ] Train team on using ACR images
+- [ ] Set up production image promotion workflow
+- [ ] Create incident response procedures
+
+---
+
+## Example: Complete Workflow
+
+### 1. Developer Commits Code
+
+```bash
+git add .
+git commit -m "feat: add new codespace feature"
+git push origin feature/new-feature
+```
+
+### 2. GitHub Actions Builds & Pushes
+
+```
+✅ Code checkout
+✅ Build API image: cimp-api:abc123
+✅ Build Blazor image: cimp-blazor:abc123
+✅ Scan for vulnerabilities
+✅ Push to ACR
+✅ Tag as latest
+```
+
+### 3. Developer Creates Codespace
+
+```
+✅ Codespace creates
+✅ Runs post-create script
+✅ Logs into ACR
+✅ Pulls exact versions
+✅ Starts docker-compose
+✅ Ready to develop (~2 min)
+```
+
+### 4. Pull Request Testing
+
+```
+✅ Same images used in CI/CD pipeline
+✅ Same versions as dev environment
+✅ Identical behavior guaranteed
+```
+
+### 5. Production Deployment
+
+```
+✅ Create release tag (v1.2.3)
+✅ GitHub Actions builds and pushes
+✅ Security scan completes
+✅ Deploy to staging with v1.2.3
+✅ Test in staging
+✅ Deploy to production with v1.2.3
+✅ 100% version consistency
+```
+
+---
+
+## Cost Considerations
+
+### Azure Container Registry Pricing (Premium)
+
+| Resource | Cost | Monthly |
+|----------|------|---------|
+| ACR Premium | $0.50/day | ~$15 |
+| Storage (100GB) | $0.10/GB | $10 |
+| Egress (100GB) | $0.05/GB | $5 |
+| **Total** | | **~$30** |
+
+### Savings from ACR
+
+| Savings | Amount |
+|---------|--------|
+| Reduced build time (30% faster) | $500/month |
+| Faster Codespace creation | $300/month |
+| Reduced environment issues | $200/month |
+| **Total Monthly Savings** | **$1,000+** |
+
+**ROI: 33:1 (30x return on investment)**
+
+---
+
+## Next Steps
+
+1. **Create Azure Container Registry** (Step 1)
+2. **Set up GitHub Secrets** for ACR credentials
+3. **Create devcontainer.json** in repository
+4. **Create GitHub Actions workflow** for builds
+5. **Update docker-compose.yml** with ACR images
+6. **Test Codespace creation** with ACR
+7. **Document procedures** for team
+8. **Train team** on new workflow
+
+---
+
+## Related Documentation
+
+- [Azure Container Registry Docs](https://learn.microsoft.com/en-us/azure/container-registry/)
+- [GitHub Codespaces devcontainer.json](https://containers.dev/)
+- [Docker Multi-stage Builds](https://docs.docker.com/build/building/multi-stage/)
+- [Semantic Versioning](https://semver.org/)
+- [GitHub Actions Best Practices](https://docs.github.com/en/actions/guides)
+
+---
+
+## Support & Questions
+
+**For ACR issues:**
+- Check Azure status: https://status.azure.com
+- Azure Container Registry documentation: https://learn.microsoft.com/en-us/azure/container-registry/
+
+**For Codespaces issues:**
+- GitHub Codespaces documentation: https://docs.github.com/en/codespaces
+- devcontainer.json specification: https://containers.dev/
+
+**For implementation help:**
+- Contact your DevOps team
+- Review example GitHub repository: [azure-samples/acr-tasks](https://github.com/Azure-Samples/acr-tasks)
+
+---
+
+## Summary
+
+**Azure Container Registry Integration Benefits:**
+
+✅ **Version Consistency** - Same exact versions in all environments  
+✅ **Faster Setup** - 2-3 minute codespace creation vs 15-20 minutes  
+✅ **Reduced Bugs** - No "works on my machine" issues  
+✅ **Better Security** - Vulnerability scanning, image signing  
+✅ **Compliance** - Audit trail, RBAC, signed images  
+✅ **Cost Savings** - Reduced troubleshooting, faster builds  
+✅ **Team Productivity** - Less time debugging environments  
+✅ **Disaster Recovery** - Quick environment recreation  
+
+**With ACR + Codespaces, you achieve true environment parity across development, staging, and production!**
