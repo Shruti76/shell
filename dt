@@ -1,0 +1,41 @@
+Plan: Developer Portal + Package Management Integration
+TL;DR: Build a developer portal that unifies package management workflows with GitHub Codespaces/Anaconda environments. Developers submit package requests through the portal, triggering a Kafka-based workflow that validates against approved packages in ACR, runs tests via GitHub Actions, and surfaces results through the portal UI. Codespaces are pre-populated with approved packages using devcontainer.json, while approval workflows route requests to Platform Team and designated Approvers through multi-role governance.
+
+Steps
+Design Portal Data Model — Define request structure (package details, runtime, version, requestor, reviewer assignment), role hierarchy (Developer, Platform Team, Approver, Security), and state machine with transitions (Submitted → Validating → Awaiting Approval → Approved → Building → Testing → Deployed/Failed).
+
+Build Request Service API — Create backend REST endpoints to submit/retrieve/update package requests, persist to database, emit Kafka events on state changes, and handle role-based authorization for viewing/approving.
+
+Implement Kafka Event Pipeline — Design topics (package-requests, validation-results, approval-events, build-results), event producers/consumers for validation service, approval router, and GitHub Actions trigger coordination.
+
+Create Approval Workflow Engine — Build rules-based system determining reviewers based on package type/requestor/risk level, route escalations after timeout, integrate with GitHub code owners file, and handle approval/rejection with feedback reasons.
+
+Integrate GitHub Actions Triggers — Create workflow YAML that subscribes to Kafka approval events, runs build/test/security scan steps, captures results (logs, coverage, vulnerabilities), and publishes completion events back to Kafka.
+
+Build Notification Service — Implement multi-channel notifications (email, Slack, portal dashboard) for request state changes, build failures, approval decisions, with retry logic and unread tracking in portal.
+
+Configure Devcontainer Integration — Create devcontainer.json templates for each runtime (Python/Node/Java/Go) that pre-populate approved packages from manifest files, inject ACR credentials via GitHub Org Secrets, and validate packages against allowlist during workspace creation.
+
+Implement Real-time Portal UI — Build dashboard views (Requests, Repository, Projects, User Management), WebSocket connection for live status updates, PR linking, test result visualization, and one-click retry/approve/reject actions.
+
+Set Up ACR + Codespaces Security — Configure service principal with AcrPull role, store credentials in GitHub Org Secrets, implement pre-pull validation script in postCreateCommand, and establish image caching strategy for fast workspace startup.
+
+Create Multi-workspace Management — Implement workspace lifecycle tracking (active, paused, stale), auto-cleanup after 30 days, uncommitted changes detection, and GitHub CLI integration for context switching.
+
+Further Considerations
+Request Approval Routing — Should approvers be auto-determined by code owners file, or should you maintain separate approval matrix in portal? Recommend hybrid: code owners for repo-specific, approval matrix for package-category rules.
+
+Notification Escalation — How long before escalating to backup reviewer if primary approver doesn't respond? Recommend 24hrs for standard, 4hrs for critical packages.
+
+Phase 1 Scope — Should you start with manual request submission only, then add Codespaces/Anaconda integration in Phase 2? Recommend starting with portal + ACR validation, add Codespaces automation once portal is stable.
+
+Test Execution Environment — Should tests run in temporary Codespaces or dedicated CI runners? Recommend dedicated runners for speed/cost, Codespaces only for interactive debugging of failures.
+
+Kafka vs Alternative — Do you have Kafka infrastructure already, or would managed queue (Azure Service Bus, RabbitMQ) work better? This affects complexity and operational burden.
+
+What would you like me to refine? For example:
+
+Should we adjust the scope (all steps vs. MVP)?
+Do you have existing infrastructure (Kafka, ACR, GitHub Org) we should account for?
+Which runtimes/teams should be in Phase 1 vs. Phase 2?
+Claude Haiku 4.5 • 0.33x
